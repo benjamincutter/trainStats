@@ -5,8 +5,8 @@ The Casualties Analysis section of the project will focus on the relationship be
 Initial Data Exploration
 When variable ambiguity may occur, variables will be prefixed with ca_ to indicate that they are part of the Casualties Analysis section.
 ```{r}
-traindir <- ("C:\\Users\\RAJ\\Downloads\\traindata2024")
-sourcedir <- ("C:\\Users\\RAJ\\Downloads")
+traindir <- ("./traindata2024")
+sourcedir <- ("/Users/bcutter/UVA/statisticalModeling/trainStats")
 
 
 # Load the data
@@ -50,13 +50,15 @@ dim(ca_totacts_posCas_nodup)
 
 # Produce box plots of rail accidents each year (e.g., use bwplot())
 bwplot(ca_totacts_posCas_nodup$YEAR ~ ca_totacts_posCas_nodup$Casualty, main = "Boxplot of Casualties by Year", xlab = "Casualties", ylab = "Year")
-
+```
+```{r}
 # get the row with max casualties
 ca_totacts_posCas_nodup[ca_totacts_posCas_nodup$Casualty == max(ca_totacts_posCas_nodup$Casualty),]
 
 # after looking at this row a bit more, I decided we will leave it in. 
 # while it is a bit of a n outlier I think it's a realistic piece that should be included in the analysis
 ```
+
 
 Our first hypothesis is that visibility conditions and the number of cars carrying hazardous materials will impact the number of casualties in a train accident. We will test this hypothesis by comparing the number of casualties to visibility conditions and the number of cars carrying hazardous materials.
 
@@ -78,6 +80,12 @@ ggplot(ca_totacts_posCas_nodup, aes(x = VISIBLTY, y = Casualty)) +
   labs(title = "Casualties by Visibility", x = "Visibility", y = "Casualties")
 
 ```
+```{r}
+# create a box plot for each visibility level
+bwplot(ca_totacts_posCas_nodup$VISIBLTY ~ ca_totacts_posCas_nodup$Casualty, main = "Boxplot of Casualties by Visibility", xlab = "Casualties", ylab = "Visibility")
+
+```
+
 
 The plot above shows the relationship between visibility conditions and the number of casualties in train accidents. It appears that accidents with poor visibility conditions tend to have higher numbers of casualties compared to accidents with clear visibility conditions. This suggests that poor visibility conditions may increase the number of casualties in train accidents.
 
@@ -131,6 +139,92 @@ There appears to be some multicolinarity between the number of cars carrying haz
 
 Suggestion for improvement:
 The number of cars with hazardous materials independently is a strong predictor of casualties.  When we combine this predictor with visibility, we can see that there are in fact increased accidents in low visibility.  A recommendation to improve would be to ensure trains carrying hazardous material are scheduled during peak daylight hours, and minimize their time on the tracks during low visibility conditions.  This could be a policy recommendation to reduce the number of casualties in train accidents.
+
+
+Second Casualties Hypothesis
+Visibility can be significantly diminished when traveling into the sun.  When a train is traveling east in the morning or west in the evening, the sun can be directly in the eyes of the conductor.  This can lead to accidents due to the conductor not being able to see the track ahead.  We will test this hypothesis by comparing the number of casualties to the direction of travel and the time of day.  Trains that are at increased speed during these periods may also be at increased risk of accidents.
+
+H0: Direction of travel and time of day have no impact on the number of casualties in a train accident.
+
+H1: Traveling into the sun in the morning or evening increases the number of casualties in a train accident.
+
+Assumptions:
+We will assume that the train's direction is generally consistent.
+We will assume that the visiblty fields of dawn and dusk are when the sun is in the eyes of the conductor.
+
+
+Data Exploration
+First, we'll look at travel direction.
+Key:
+1: North
+2: South
+3: East
+4: West
+
+```{r}
+# compare casualties to direction of travel
+ggplot(ca_totacts_posCas_nodup, aes(x = TRNDIR, y = Casualty)) +
+  geom_point() +
+  labs(title = "Casualties by Direction of Travel", x = "Direction of Travel", y = "Casualties")
+```
+From this first graph, directions look fairly evenly distributed.  Let's narrow our focus down to time of day
+
+```{r}
+# Create boxplots of casualties by direction of travel, by dawn only
+bwplot(ca_totacts_posCas_nodup$TRNDIR ~ ca_totacts_posCas_nodup$Casualty, subset = ca_totacts_posCas_nodup$VISIBLTY == 1, main = "Boxplot of Casualties by Direction of Travel at Dawn", xlab = "Casualties", ylab = "Direction of Travel")
+```
+We would expect East to have the most casualties if our hypothesis is correct, but there doesn't appear to be much initial evidence to support this hypothesis. Let's now look at dusk
+```{r}
+# Create boxplots of casualties by direction of travel, by dusk only
+bwplot(ca_totacts_posCas_nodup$TRNDIR ~ ca_totacts_posCas_nodup$Casualty, subset = ca_totacts_posCas_nodup$VISIBLTY == 3, main = "Boxplot of Casualties by Direction of Travel at Dusk", xlab = "Casualties", ylab = "Direction of Travel")
+
+```
+Again, we would expect West to have the most casualties if our hypothesis is correct, but there doesn't appear to be much initial evidence to support this hypothesis.  Let's now look at the time of day in general.  As a whole, we see very few accidents occurring at dusk visibility.  This could be due to the fact that dusk is a short period of time, and the sun is not directly in the eyes of the conductor for long.  Let's look at the time of day in general.
+
+```{r}
+# Create boxplots of casualties by direction of travel, by time of day
+bwplot(ca_totacts_posCas_nodup$TIMEHR ~ ca_totacts_posCas_nodup$Casualty, 
+       subset = (ca_totacts_posCas_nodup$TRNDIR == 4 & ca_totacts_posCas_nodup$AMPM == "PM"), 
+       main = "Boxplot of Casualties by Direction of Travel at Day (PM)", 
+       xlab = "Casualties", 
+       ylab = "Time of day"
+     )
+```
+This is a little more helpful, but let's now bucket our PM hours into 1-4, 5-8, and 9-12.  We will consider 5-8 to be time when the sun could impact visibility.
+```{r}
+# Create Buckets
+ca_totacts_posCas_nodup$TimeBucket <- cut(ca_totacts_posCas_nodup$TIMEHR, 
+                                            breaks = c(0, 4, 8, 12), 
+                                            labels = c("1-4", "5-8", "9-12"))
+# Create boxplot with the new buckets
+bwplot(ca_totacts_posCas_nodup$PMTimeBucket ~ ca_totacts_posCas_nodup$Casualty, 
+       subset = (ca_totacts_posCas_nodup$TRNDIR == 4 & ca_totacts_posCas_nodup$AMPM == "PM"), 
+       main = "Boxplot of Casualties by Direction of Travel at Day (PM)", 
+       xlab = "Casualties", 
+       ylab = "Time of day"
+     )
+```
+Sadly, there still doesn't appear to be much evidence to support our hypothesis for PM travel and distance.  Let's now look at AM travel and distance.
+
+```{r}
+# Create boxplots with the new buckets for AM travel
+bwplot(ca_totacts_posCas_nodup$TimeBucket ~ ca_totacts_posCas_nodup$Casualty, 
+       subset = (ca_totacts_posCas_nodup$TRNDIR == 3 & ca_totacts_posCas_nodup$AMPM == "AM"), 
+       main = "Boxplot of Casualties by Direction of Travel at Day (AM)", 
+       xlab = "Casualties", 
+       ylab = "Time of day"
+     )
+```
+If we assume that 5-8 am represents our times with the sun in the eyes of the conductor, there is ample evidence to support continuing with our model.  We will now build a model to test our hypothesis.
+
+```{r}
+# create linear model only looking at AM Times
+ca_totacts_posCas_AM = ca_totacts_posCas_nodup[ca_totacts_posCas_nodup$AMPM == "AM",]
+ca_lm_casualty_time = lm(Casualty ~ TimeBucket * TRNDIR, data = ca_totacts_posCas_AM)
+summary(ca_lm_casualty_time)
+```
+Unfortunately, it does not appear that there is any significant data points to support our hypothesis.  We will need to reject our hypothesis that traveling into the sun in the morning or evening increases the number of casualties in a train accident.
+
 
 # Appendix A: Model Selection Process with Additional Variables
 ```{r}
