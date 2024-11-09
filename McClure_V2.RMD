@@ -1,0 +1,589 @@
+---
+pdf_document: default
+title: "Group Project 1"
+author: "NAMES!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!1"
+abstract: 
+output: pdf_document
+---
+***
+
+```{r "setup", include=FALSE}
+#This block of code will not appear in your knitted document
+#Setup paths for data and Rcode
+require("knitr")
+traindir <- ("C:\\Users\\payth\\Documents\\UVA_Stuff_G15\\SYS6021\\TrainExample\\traindata2024")
+sourcedir <- ("C:\\Users\\payth\\Documents\\UVA_Stuff_G15\\SYS6021\\TrainExample")
+opts_knit$set(root.dir = sourcedir)
+opts_chunk$set(warning=FALSE)
+```
+
+Source files & load and clean data
+```{r "setup", include=FALSE}
+setwd(sourcedir)
+source("PCAplots.R")
+source("AccidentInput.R")
+
+library(ade4)
+library(ggplot2)
+library(here)
+library(dplyr)
+library(ggpubr)
+library(ggfortify)
+library(MASS)
+library(lindia)
+library(psych)
+library(lattice)
+library(data.table)
+library(plyr)
+library(scales)
+library(grid)
+library(car)
+```
+
+```{r}
+# Load a list of data frames for each year of accident data
+acts <- file.inputl(traindir)
+# combine into one data frame
+totacts <- combine.data(acts)
+# setup categorical variables
+totacts$TYPE <- factor(totacts$TYPE, labels = c("Derailment", "HeadOn", "Rearend", "Side", "Raking", "BrokenTrain", "Hwy-Rail",  "GradeX", "Obstruction", "Explosive", "Fire","Other","SeeNarrative" ))
+totacts$TYPEQ <- factor(totacts$TYPEQ, labels = c("NA", "Freight", "Passenger", "Commuter",  "Work",  "Single", "CutofCars", "Yard", "Light", "Maint", "MaintOfWay", "Passenger", "Commuter", "ElectricMulti", "ElectricMulti"))
+totacts$Cause <- rep(NA, nrow(totacts))
+totacts$Cause[which(substr(totacts$CAUSE, 1, 1) == "M")] <- "M"
+totacts$Cause[which(substr(totacts$CAUSE, 1, 1) == "T")] <- "T"
+totacts$Cause[which(substr(totacts$CAUSE, 1, 1) == "S")] <- "S"
+totacts$Cause[which(substr(totacts$CAUSE, 1, 1) == "H")] <- "H"
+totacts$Cause[which(substr(totacts$CAUSE, 1, 1) == "E")] <- "E"
+totacts$Cause <- factor(totacts$Cause)
+##Build a data frame with only extreme accidents for ACCDMG
+dmgbox <- ggplot(totacts, aes(y=ACCDMG)) + geom_boxplot()
+upper <- ggplot_build(dmgbox)$data[[1]]$ymax
+xdmg <- totacts[totacts$ACCDMG > upper,]
+# remove 9/11
+xdmg <- xdmg[-179,]
+## Remove duplicates from xdmg and call new data frame xdmgnd
+xdmgnd <- xdmg[!(duplicated(xdmg[, c("INCDTNO", "YEAR", "MONTH", "DAY", "TIMEHR", "TIMEMIN")])),]
+rownames(xdmgnd) <- NULL
+```
+
+```{r}
+xdmgnd$Freight <- rep(0, nrow(xdmgnd))
+xdmgnd$Freight[which(xdmgnd$TYPEQ == "Freight")] <- 1 
+xdmgnd$Freight <- as.factor(xdmgnd$Freight)
+Speed <- cut(xdmgnd$TRNSPD, c(min(xdmgnd$TRNSPD),median(xdmgnd$TRNSPD),max(xdmgnd$TRNSPD)), include.lowest = T, labels = c("low speed", "high speed"))
+Cars <- cut(xdmgnd$CARS, c(min(xdmgnd$CARS),1,max(xdmgnd$CARS)), include.lowest = T, right=F, labels = c("low hzd", "high hzd"))
+```
+Hypothesis Generation
+Hypothesis 1: There will be increase damage in situations that have bad weather (rain/sleet/fog/snow) and higher train speeds.  AKA there will be interactions between WEATHER and TRNSPD.
+
+This hypotheses was formed from the interaction and box plots shown below. It can be seen that weather does effect the box plots - particularly sleet has a higher box plot than the other weather conditions. Note it is log(damage) so small changes in the graph can correspond to large changes in the absolute cost.
+
+
+```{r}
+
+
+xdmgnd$Weather <- rep(0, nrow(xdmgnd)) #zeros will be unknowns
+xdmgnd$Weather[which(xdmgnd$WEATHER == 1)] <- 1
+xdmgnd$Weather[which(xdmgnd$WEATHER == 2)] <- 2
+xdmgnd$Weather[which(xdmgnd$WEATHER == 3)] <- 3
+xdmgnd$Weather[which(xdmgnd$WEATHER == 4)] <- 4
+xdmgnd$Weather[which(xdmgnd$WEATHER == 5)] <- 5
+xdmgnd$Weather[which(xdmgnd$WEATHER == 6)] <- 6
+xdmgnd$Weather <- as.factor(xdmgnd$Weather)
+
+interaction.plot(xdmgnd$Weather, Speed, log(xdmgnd$ACCDMG))
+qplot(x = TRNSPD, y = log(ACCDMG), data = xdmgnd, colour = Weather) +
+  geom_smooth(method = "lm")
+ggplot() +
+  aes(x = Speed, y = log(xdmgnd$ACCDMG), group = xdmgnd$Weather, color = xdmgnd$Weather) +
+  stat_summary(fun = mean, geom = "point") +
+  stat_summary(fun = mean, geom = "line") +
+  ylab("Mean of Accident Damage ($)")+
+  xlab("") +
+  theme_bw() + 
+  labs(color = "") +
+  scale_y_continuous(labels = function(x) format(x, scientific = TRUE)) + 
+  ggtitle("Interaction of Speed and Freight on Accident Damage")
+
+
+xdmgnd$WEATHER <- factor(xdmgnd$WEATHER, labels = c("Clear","Cloudy","Rain","Fog","Sleet","Snow"))
+contrasts(xdmgnd$WEATHER) #What is the base case?
+boxplot(log(ACCDMG) ~ WEATHER, data = xdmgnd, xlab = "Weather Condition", ylab = "Log Accident Damage (ACCDMG)")
+
+
+
+```
+
+To make a heavily inclusive model to work with weather and train speed a biplot was made and quantitative variables that allied with Accident damage where chosen to be added to a model.  This heavily inclusive model will differently have strong variable co-linearity and interaction and will be very complex. But for the purpose of seeing if there was significant interaction between weather and speed theses downsides can be 'lived with'.
+Further in the report similar analysis will be done but with models that have been tested to have low AIC, BIC and less variance inflation factors.
+
+
+```{r}
+
+xdmgnd.pca.corr <- princomp(xdmgnd[,c("ACCDMG","TEMP","TRNSPD", "CARS", "HEADEND1", "CARSDMG", "CARSHZD", "TONS",  "MIDMAN1", "MIDREM1", "RMAN1", "RREM1", "LOADF1", "LOADP1", "EMPTYF1", "EMPTYP1", "CABOOSE1" )], cor = T)
+#did not condiered factors like # of engs or firemen because data was unclear and a lot of N/A cells - not clear how to handle in a vailid way
+
+ggbiplot(xdmgnd.pca.corr, varname.size = 3, labels=row(xdmgnd),
+                        plot.obs=FALSE, xlim=c(-2.5,2.5), ylim=c(-1.5,2))
+```
+
+The model showed that there was no statically significant interactions between weather and train speed.  But it did show there were other statically significant interactions with weather: (determined by the P-value)
+
+WEATHERRain:TONS       -2.967e-05  1.045e-05  -2.839 0.004537 **
+WEATHERRain:LOADF1      4.266e-03  1.347e-03   3.167 0.001547 ** 
+WEATHERRain:EMPTYF1     2.176e-03  9.620e-04   2.262 0.023707 *
+WEATHERRain:EMPTYP1     6.350e-02  2.879e-02   2.205 0.027459 * 
+
+From this it can be seen that Rainy weather and its interactions with TONS/LOADF1/EMPTYF1/EMPTYP1 all head statically significant roles on the accident damage
+Note that the coefficients were positive for all but TONS. The positive coefficient indicated that these interaction increase accident damage.
+
+Finally note that the model plots indicate that he model is overall well behaved.  The QQ plot shows some deviation from the idea in the upper right, but this was not considered significant. Also not this is why Log of accident damage was used, because without a log or boxcox transformation the models did no behave as well.
+
+```{r}
+# Build linear model 
+Weather_lm_accdmg <- lm(log(ACCDMG) ~ (WEATHER + TRNSPD + CARS + HEADEND1 + CARSDMG + CARSHZD + TONS + MIDMAN1 + MIDREM1 + RMAN1 + RREM1 + LOADF1 + LOADP1 + EMPTYF1 + EMPTYP1 + CABOOSE1)^2 , data = xdmgnd)
+summary(Weather_lm_accdmg)
+# Model diagnostics
+par(mfrow = c(2, 2))
+plot(Weather_lm_accdmg)
+
+```
+
+
+Hypothesis Generation
+Hypothesis 2: There will be increase damage in situations that have low visibility (dark) and higher train speeds.  AKA there will be interactions between VISIBLTY and TRNSPD.
+
+This hypotheses was formed from the interaction and box plots shown below. It can be seen that visibility does effect the box plots - particularly Dark has a higher box plot than the other conditions. Note it is log(damage) so small changes in the graph can correspond to large changes in the absolute cost. And based on the interaction plots the interactions will be most noticeable at higher train speeds.
+
+
+
+
+```{r}
+xdmgnd$visiblty <- rep(0, nrow(xdmgnd)) #zeros will be unknown time of day/visibility
+xdmgnd$visiblty[which(xdmgnd$VISIBLTY == 1)] <- 1
+xdmgnd$visiblty[which(xdmgnd$VISIBLTY == 2)] <- 2
+xdmgnd$visiblty[which(xdmgnd$VISIBLTY == 3)] <- 3
+xdmgnd$visiblty[which(xdmgnd$VISIBLTY == 4)] <- 4
+xdmgnd$visiblty <- as.factor(xdmgnd$visiblty)
+
+interaction.plot(xdmgnd$visiblty, Speed, log(xdmgnd$ACCDMG))
+qplot(x = TRNSPD, y = log(ACCDMG), data = xdmgnd, colour = visiblty) +
+  geom_smooth(method = "lm")
+ggplot() +
+  aes(x = Speed, y = log(xdmgnd$ACCDMG), group = xdmgnd$visiblty, color = xdmgnd$visiblty) +
+  stat_summary(fun = mean, geom = "point") +
+  stat_summary(fun = mean, geom = "line") +
+  ylab("Mean of Accident Damage ($)")+
+  xlab("") +
+  theme_bw() + 
+  labs(color = "") +
+  scale_y_continuous(labels = function(x) format(x, scientific = TRUE)) + 
+  ggtitle("Interaction of Speed and Freight on Accident Damage")
+
+xdmgnd$VISIBLTY <- factor(xdmgnd$VISIBLTY, labels = c("Dawn","Day","Dusk","Dark"))
+
+boxplot(log(ACCDMG) ~ VISIBLTY, data = xdmgnd, xlab = "Visiblty Condition", ylab = "Log Accident Damage (ACCDMG)")
+
+```
+
+The model showed that there was no statically significant interactions between visibility and train speed, or any other variable.
+Note that the model plots indicate that he model is overall well behaved. 
+
+
+```{r}
+# Build linear model 
+VISIBLTY_lm_accdmg <- lm(log(ACCDMG) ~ (VISIBLTY + TRNSPD + CARS + HEADEND1 + CARSDMG + CARSHZD + TONS + MIDMAN1 + MIDREM1 + RMAN1 + RREM1 + LOADF1 + LOADP1 + EMPTYF1 + EMPTYP1 + CABOOSE1)^2 , data = xdmgnd)
+summary(VISIBLTY_lm_accdmg)
+par(mfrow = c(2, 2))
+plot(VISIBLTY_lm_accdmg)
+
+
+```
+
+
+
+Hypothesis Generation
+Hypothesis 3: There will be increase damage in situations that occur on Main and Siding tracts and higher train speeds.  AKA there will be interactions between TYPTRK and TRNSPD.
+
+This hypotheses was formed from the interaction and box plots shown below. It can be seen that track type does effect the box plots - particularly Main and Siding has a higher box plot than the other conditions. Note it is log(damage) so small changes in the graph can correspond to large changes in the absolute cost. And based on the interaction plots the interactions will be most noticeable at higher train speeds.
+
+
+```{r}
+xdmgnd$typtrk <- rep(0, nrow(xdmgnd)) #zeros will be unknowns
+xdmgnd$typtrk[which(xdmgnd$TYPTRK == 1)] <- 1
+xdmgnd$typtrk[which(xdmgnd$TYPTRK == 2)] <- 2
+xdmgnd$typtrk[which(xdmgnd$TYPTRK == 3)] <- 3
+xdmgnd$typtrk[which(xdmgnd$TYPTRK == 4)] <- 4
+xdmgnd$typtrk <- as.factor(xdmgnd$typtrk)
+
+interaction.plot(xdmgnd$typtrk, Speed, log(xdmgnd$ACCDMG))
+qplot(x = TRNSPD, y = log(ACCDMG), data = xdmgnd, colour = typtrk) +
+  geom_smooth(method = "lm")
+ggplot() +
+  aes(x = Speed, y = log(xdmgnd$ACCDMG), group = xdmgnd$typtrk, color = xdmgnd$typtrk) +
+  stat_summary(fun = mean, geom = "point") +
+  stat_summary(fun = mean, geom = "line") +
+  ylab("Mean of Accident Damage ($)")+
+  xlab("") +
+  theme_bw() + 
+  labs(color = "") +
+  scale_y_continuous(labels = function(x) format(x, scientific = TRUE)) + 
+  ggtitle("Interaction of Speed and Freight on Accident Damage")
+
+xdmgnd$TYPTRK <- factor(xdmgnd$TYPTRK, labels = c("Main","Yard","Siding","Industry"))
+contrasts(xdmgnd$TYPTRK) 
+boxplot(log(ACCDMG) ~ TYPTRK, data = xdmgnd, xlab = "Track Type", ylab = "Log Accident Damage (ACCDMG)")
+
+```
+
+
+
+
+The model found there were no statically signification interaction between train type and train speed. But other factor were found to be statically signification (along with if the type of a Yard track):
+
+TYPTRKYard             -4.110e-01  4.356e-02  -9.437  < 2e-16 ***
+TYPTRKYard:CARS        -5.131e-03  2.032e-03  -2.525 0.011591 *  
+TYPTRKIndusty:CARS     -1.362e-02  6.705e-03  -2.031 0.042298 *  
+TYPTRKYard:HEADEND1     3.961e-02  1.802e-02   2.198 0.027991 *
+TYPTRKIndusty:HEADEND1  9.502e-02  4.797e-02   1.981 0.047635 * 
+TYPTRKIndusty:CARSHZD   9.566e-01  3.991e-01   2.397 0.016571 *
+TYPTRKYard:MIDMAN1      3.514e-01  1.444e-01   2.433 0.015000 *  
+TYPTRKYard:MIDREM1     -2.227e-01  8.565e-02  -2.600 0.009345 ** 
+TYPTRKYard:LOADP1       1.687e-01  4.181e-02   4.034 5.53e-05 ***
+
+Among these factor the interaction between having Industry tracks and cars with hazards had the largest positive coeffecent, indicating that trains with large amounts of hazardus materials on industrial tracks can increase the total accident damage.
+
+```{r}
+# Build linear model
+TYPTRK_lm_accdmg <- lm(log(ACCDMG) ~ (TYPTRK + TRNSPD + CARS + HEADEND1 + CARSDMG + CARSHZD + TONS + MIDMAN1 + MIDREM1 + RMAN1 + RREM1 + LOADF1 + LOADP1 + EMPTYF1 + EMPTYP1 + CABOOSE1)^2 , data = xdmgnd)
+summary(TYPTRK_lm_accdmg)
+par(mfrow = c(2, 2))
+plot(TYPTRK_lm_accdmg)
+
+```
+
+To see if there were any interactions between the weather, visibility and track type another model was made.
+
+```{r}
+# ALL Factors
+All_lm_accdmg <- lm(log(ACCDMG) ~ (TYPTRK + WEATHER + VISIBLTY + TRNSPD + CARS + HEADEND1 + CARSDMG + CARSHZD + TONS + MIDMAN1 + MIDREM1 + RMAN1 + RREM1 + LOADF1 + LOADP1 + EMPTYF1 + EMPTYP1 + CABOOSE1)^2 , data = xdmgnd)
+summary(All_lm_accdmg)
+
+par(mfrow = c(2, 2))
+plot(All_lm_accdmg)
+
+
+```
+
+It was found that there were statistically significant interactions between the visibility and the track type or weather.
+
+TYPTRKYard:VISIBLTYDay       1.647e-01  8.028e-02   2.052 0.040196 *  
+TYPTRKYard:VISIBLTYDusk      2.179e-01  1.096e-01   1.989 0.046757 *  
+WEATHERRain:VISIBLTYDusk    -4.014e-01  1.550e-01  -2.589 0.009641 ** 
+
+
+
+
+
+In order to test with models that are 'better' with less VIF and complexity models were made with variables that were narrowed down from the large model used above. The making of this smaller model is given in Appendix A. The model was made my removing variables that were not statically significant or had large VIFs. Variables were also centered to minimize VIF effects. Backwards step regression was also used. In the end the model with the lowest AIC, BIC, VIF was chosen (that did not significantly reduce the adjusted R2)
+
+Another model was used from the class materials, this was done to test against yet another model (and because it is unclear if this what was wanted for the project)
+
+
+Do again with best model we could make and best model from class
+
+```{r}
+# centering of data
+xdmgnd$TRNSPD_anomaly = xdmgnd$TRNSPD - mean(xdmgnd$TRNSPD)
+xdmgnd$CARS_anomaly = xdmgnd$CARS - mean(xdmgnd$CARS)
+xdmgnd$HEADEND1_anomaly = xdmgnd$HEADEND1 - mean(xdmgnd$HEADEND1)
+xdmgnd$TONS_anomaly = xdmgnd$TONS - mean(xdmgnd$TONS)
+xdmgnd$MIDREM1_anomaly = xdmgnd$MIDREM1 - mean(xdmgnd$MIDREM1)
+xdmgnd$TEMP_anomaly = xdmgnd$TEMP - mean(xdmgnd$TEMP)
+xdmgnd$RREM1_anomaly = xdmgnd$RREM1 - mean(xdmgnd$RREM1)
+xdmgnd$LOADF1_anomaly = xdmgnd$LOADF1 - mean(xdmgnd$LOADF1)
+xdmgnd$LOADP1_anomaly = xdmgnd$LOADP1 - mean(xdmgnd$LOADP1)
+xdmgnd$EMPTYF1_anomaly = xdmgnd$EMPTYF1 - mean(xdmgnd$EMPTYF1)
+```
+
+The model made by this group had an adjusted R2 of 0.21 and no VIFs above 3. The model taken from the class material and an adusted R2 of 0.18 and some factors above 10 in VIF. But both were signfincat improvments of the large model used above.
+
+```{r}
+OurBestModel <- lm(log(ACCDMG)~( TRNSPD_anomaly + HEADEND1_anomaly + RREM1_anomaly + LOADF1_anomaly)^2,data=xdmgnd)
+print("Adjusted R2, AIC, BIC, and VIF")
+summary(OurBestModel)$adj.r.squared
+AIC(OurBestModel)
+AIC(OurBestModel,k=log(nrow(xdmgnd)))
+vif(OurBestModel)
+par(mfrow = c(2, 2))
+plot(OurBestModel)
+
+ClassModel <- lm(log(ACCDMG)~(TEMP+TRNSPD+CARS+HEADEND1)^2+I(TEMP^2)+I(TRNSPD^2)+I(CARS^2)+I(HEADEND1^2),data=xdmgnd)
+summary(ClassModel)$adj.r.squared
+AIC(ClassModel)
+AIC(ClassModel,k=log(nrow(xdmgnd)))
+vif(ClassModel) 
+par(mfrow = c(2, 2))
+plot(ClassModel)
+```
+When weather was tested with the best group model no significant interaction with weather were found. But it was found that independitly Rain was a signficant factor
+
+```{r}
+OurBestModel_Weather <- lm(log(ACCDMG)~( WEATHER+TRNSPD_anomaly + HEADEND1_anomaly + RREM1_anomaly + LOADF1_anomaly)^2,data=xdmgnd)
+summary(OurBestModel_Weather)
+summary(OurBestModel_Weather)$adj.r.squared
+AIC(OurBestModel_Weather)
+AIC(OurBestModel_Weather,k=log(nrow(xdmgnd)))
+vif(OurBestModel_Weather)
+par(mfrow = c(2, 2))
+plot(OurBestModel_Weather)
+```
+
+When visibility was tested with the best group model only the interaction between Day and Headend1 was found to be significant - with a negative coefficient.
+VISIBLTYDay:HEADEND1_anomaly    -5.218e-02  2.423e-02  -2.153  0.03131 *  
+
+```{r}
+OurBestModel_VISIBLTY <- lm(log(ACCDMG)~( VISIBLTY+TRNSPD_anomaly + HEADEND1_anomaly + RREM1_anomaly + LOADF1_anomaly)^2,data=xdmgnd)
+summary(OurBestModel_VISIBLTY)
+summary(OurBestModel_VISIBLTY)$adj.r.squared
+AIC(OurBestModel_VISIBLTY)
+AIC(OurBestModel_VISIBLTY,k=log(nrow(xdmgnd)))
+vif(OurBestModel_VISIBLTY) 
+par(mfrow = c(2, 2))
+plot(OurBestModel_VISIBLTY)
+```
+
+When track type was tested with the best group model no significant interactions were found. But being on Yard track was significant with a negative coefficient.
+
+
+```{r}
+OurBestModel_TYPTRK <- lm(log(ACCDMG)~( TYPTRK+TRNSPD_anomaly + HEADEND1_anomaly + RREM1_anomaly + LOADF1_anomaly)^2,data=xdmgnd)
+summary(OurBestModel_TYPTRK)
+summary(OurBestModel_TYPTRK)$adj.r.squared
+AIC(OurBestModel_TYPTRK)
+AIC(OurBestModel_TYPTRK,k=log(nrow(xdmgnd)))
+vif(OurBestModel_TYPTRK) 
+par(mfrow = c(2, 2))
+plot(OurBestModel_TYPTRK)
+```
+
+When all three factors were in the model they had three significant interactions:
+WEATHERFog:VISIBLTYDay          -4.406e-01  2.235e-01  -1.972  0.04870 *  
+WEATHERRain:VISIBLTYDusk        -3.565e-01  1.527e-01  -2.334  0.01963 * 
+VISIBLTYDay:TYPTRKYard           1.786e-01  8.030e-02   2.224  0.02614 *
+The only one with a positive coefficient was between Day and Yard.
+
+
+```{r}
+OurBestModel_ALL <- lm(log(ACCDMG)~( WEATHER+ VISIBLTY+TYPTRK+TRNSPD_anomaly + HEADEND1_anomaly + RREM1_anomaly + LOADF1_anomaly)^2,data=xdmgnd)
+summary(OurBestModel_ALL)
+summary(OurBestModel_ALL)$adj.r.squared
+AIC(OurBestModel_ALL)
+AIC(OurBestModel_ALL,k=log(nrow(xdmgnd)))
+#vif(OurBestModel_ALL) 
+par(mfrow = c(2, 2))
+plot(OurBestModel_ALL)
+```
+
+When Weather was run on the class model the only interaction was between RAin and Temperature. Rain was independitly signifinat was well.
+WEATHERRain:TEMP        8.647e-03  2.030e-03   4.260 2.06e-05 ***
+WEATHERRain            -4.452e-01  1.347e-01  -3.305 0.000954 ***
+
+```{r}
+ClassModel_Weather <- lm(log(ACCDMG)~(WEATHER+TEMP+TRNSPD+CARS+HEADEND1)^2+I(TEMP^2)+I(TRNSPD^2)+I(CARS^2)+I(HEADEND1^2),data=xdmgnd)
+summary(ClassModel_Weather)
+summary(ClassModel_Weather)$adj.r.squared
+AIC(ClassModel_Weather)
+AIC(ClassModel_Weather,k=log(nrow(xdmgnd)))
+vif(ClassModel_Weather)
+par(mfrow = c(2, 2))
+plot(ClassModel_Weather)
+```
+
+When the class model was run with Visibility the only interaction was between Day and train speed, with a negative coefficient.
+VISIBLTYDay:TRNSPD    -3.762e-03  1.858e-03  -2.024  0.04297 * 
+
+```{r}
+
+ClassModel_VISIBLTY <- lm(log(ACCDMG)~(VISIBLTY+TEMP+TRNSPD+CARS+HEADEND1)^2+I(TEMP^2)+I(TRNSPD^2)+I(CARS^2)+I(HEADEND1^2),data=xdmgnd)
+summary(ClassModel_VISIBLTY)
+summary(ClassModel_VISIBLTY)$adj.r.squared
+AIC(ClassModel_VISIBLTY)
+AIC(ClassModel_VISIBLTY,k=log(nrow(xdmgnd)))
+vif(ClassModel_VISIBLTY) 
+par(mfrow = c(2, 2))
+plot(ClassModel_VISIBLTY)
+```
+
+
+When track type was run with the class model the only significant interaction was between Yard and HeadEnd1. Yard an Industry were also independently significant.
+TYPTRKYard:HEADEND1     4.609e-02  1.583e-02   2.912   0.0036 ** 
+TYPTRKYard             -4.325e-01  7.157e-02  -6.043 1.58e-09 ***
+TYPTRKIndusty          -6.069e-01  1.537e-01  -3.948 7.95e-05 ***
+
+```{r}
+
+ClassModel_TYPTRK <- lm(log(ACCDMG)~(TYPTRK+TEMP+TRNSPD+CARS+HEADEND1)^2+I(TEMP^2)+I(TRNSPD^2)+I(CARS^2)+I(HEADEND1^2),data=xdmgnd)
+summary(ClassModel_TYPTRK)
+summary(ClassModel_TYPTRK)$adj.r.squared
+AIC(ClassModel_TYPTRK)
+AIC(ClassModel_TYPTRK,k=log(nrow(xdmgnd)))
+vif(ClassModel_TYPTRK) 
+par(mfrow = c(2, 2))
+plot(ClassModel_TYPTRK)
+```
+
+
+When all the factors were run with the class model teh interactin between Rain and Dusk was significant.
+WEATHERRain:VISIBLTYDusk    -3.865e-01  1.567e-01  -2.467 0.013641 *  
+
+```{r}
+
+ClassModel_ALL <- lm(log(ACCDMG)~(WEATHER+VISIBLTY+TYPTRK+TEMP+TRNSPD+CARS+HEADEND1)^2+I(TEMP^2)+I(TRNSPD^2)+I(CARS^2)+I(HEADEND1^2),data=xdmgnd)
+summary(ClassModel_ALL)
+summary(ClassModel_ALL)$adj.r.squared
+AIC(ClassModel_ALL)
+AIC(ClassModel_ALL,k=log(nrow(xdmgnd)))
+#vif(ClassModel_ALL) 
+par(mfrow = c(2, 2))
+plot(ClassModel_ALL)
+```
+
+
+Build linear models to test hypotheses developed for the ACCDMG severity metric con-
+sidering only accidents with damages above the upper whisker, and produce evidence to
+provide to the FRA addressing the following items:
+
+(a) The feature and model selection techniques you used to find appropriate models for
+this problem;
+  Tried 3 methods: 
+  1)Using PCA to pick variables that correlated with Accident damage - ignoring all problems with the model to have high complexity and allow for exploring all interactions with the qualitative data
+  2)Used VIF and P-value to remove variables to lower AIC/BIC/VIF. Also use backward step regression.
+  3)Used the 'best' model from class R notes that still allowed for looking for interaction terms
+  
+(b) Your treatment of ordinal and categorical variables (i.e., how were they coded);
+  The values of Weather, Visibility, and Track Type were handled as factors and their base cases were left to the R defaults (as they seemed reasonable)
+  example code xdmgnd$WEATHER <- factor(xdmgnd$WEATHER, labels = c("Clear","Cloudy","Rain","Fog","Sleet","Snow"))
+
+(c) How you assessed your models (e.g., adjusted R2, AIC, etc.);
+  Models were assessed with Adjusted R2, AIC, BIC, and VIF. Some F-testing was also done - but not widely used.
+  To simply models values with no statistical significance were also removed.
+  
+(d) How you diagnosed problems with the models; and
+  Problem were diagnosed with VIF and P-values. Values with large VIF values could be altered or removed. Values with high p-values could be removed
+  
+(e) How you adjusted the models based on these assessments.
+  Values with large VIF values could be altered or removed. Also values with high P-values were removed
+  
+  
+  
+Recommendations:
+Rain is a risk factor
+  -Teach train personnel to be extra careful in rainy weather
+  -If possible keep weight down and number of empty cars down
+  -Extra caution during rain and dusk times
+Yard track seems to be a high risk area
+  -Teach personnel to be safer in Yard areas
+  -Take extra care around Dusk
+  -If possible lower the amount of cars on a train, particularly Mid cars
+
+
+
+
+```{r}
+#Finding Best Model - Apendix A
+
+xdmgnd.QuantLargelm<-lm(log(ACCDMG)~(TEMP + TRNSPD + CARS + HEADEND1 + CARSDMG + CARSHZD + TONS + MIDMAN1 + MIDREM1 + RMAN1 + RREM1 + LOADF1 + LOADP1 + EMPTYF1 + EMPTYP1 + CABOOSE1)^2,data=xdmgnd)
+#summary(xdmgnd.QuantLargelm) 
+summary(xdmgnd.QuantLargelm)$adj.r.squared
+AIC(xdmgnd.QuantLargelm)
+AIC(xdmgnd.QuantLargelm,k=log(nrow(xdmgnd)))
+#drop the mostly orthogonal vectors
+xdmgnd.QuantSmallerlm<-lm(log(ACCDMG)~(TEMP + TRNSPD + CARS + HEADEND1 + CARSDMG + CARSHZD + TONS + MIDREM1 + RREM1 + LOADF1 + LOADP1 + EMPTYF1)^2,data=xdmgnd)
+#summary(xdmgnd.QuantSmallerlm) 
+summary(xdmgnd.QuantSmallerlm)$adj.r.squared
+AIC(xdmgnd.QuantSmallerlm)
+AIC(xdmgnd.QuantSmallerlm,k=log(nrow(xdmgnd)))
+#drop even more vars
+xdmgnd.QuantSmallererlm<-lm(log(ACCDMG)~(TRNSPD + CARS + HEADEND1 + CARSDMG + CARSHZD + TONS + MIDREM1 + RREM1 + LOADF1)^2,data=xdmgnd)
+#summary(xdmgnd.QuantSmallererlm) 
+summary(xdmgnd.QuantSmallererlm)$adj.r.squared
+AIC(xdmgnd.QuantSmallererlm)
+AIC(xdmgnd.QuantSmallererlm,k=log(nrow(xdmgnd)))
+#did not seem to help constently
+
+
+xdmgnd.QuantLargeNoIntlm<-lm(log(ACCDMG)~(TEMP + TRNSPD + CARS + HEADEND1 + CARSDMG + CARSHZD + TONS + MIDMAN1 + MIDREM1 + RMAN1 + RREM1 + LOADF1 + LOADP1 + EMPTYF1 + EMPTYP1 + CABOOSE1),data=xdmgnd)
+#summary(xdmgnd.QuantLargelm) 
+summary(xdmgnd.QuantLargeNoIntlm)$adj.r.squared
+AIC(xdmgnd.QuantLargeNoIntlm)
+AIC(xdmgnd.QuantLargeNoIntlm,k=log(nrow(xdmgnd)))
+
+xdmgnd.QuantsmallNoIntlm<-lm(log(ACCDMG)~(TEMP + TRNSPD + CARS + HEADEND1 + CARSDMG + CARSHZD + TONS + MIDREM1 + RREM1 + LOADF1 + LOADP1 + EMPTYF1),data=xdmgnd)
+#summary(xdmgnd.QuantsmallNoIntlm) 
+summary(xdmgnd.QuantsmallNoIntlm)$adj.r.squared
+AIC(xdmgnd.QuantsmallNoIntlm)
+AIC(xdmgnd.QuantsmallNoIntlm,k=log(nrow(xdmgnd)))
+
+xdmgnd.QuantsmallestNoIntlm<-lm(log(ACCDMG)~(TRNSPD + CARS + HEADEND1 + CARSDMG + CARSHZD + TONS + MIDREM1 + RREM1 + LOADF1),data=xdmgnd)
+#summary(xdmgnd.QuantsmallestNoIntlm) 
+summary(xdmgnd.QuantsmallestNoIntlm)$adj.r.squared
+AIC(xdmgnd.QuantsmallestNoIntlm)
+AIC(xdmgnd.QuantsmallestNoIntlm,k=log(nrow(xdmgnd)))
+
+
+
+
+
+xdmgnd.QuantSmallerlmV2<-lm(log(ACCDMG)~(TEMP + TRNSPD + CARS + HEADEND1 + TONS + MIDREM1 + RREM1 + LOADF1 + LOADP1 + EMPTYF1)^2,data=xdmgnd)
+#summary(xdmgnd.QuantSmallerlm) 
+summary(xdmgnd.QuantSmallerlmV2)$adj.r.squared
+AIC(xdmgnd.QuantSmallerlmV2)
+AIC(xdmgnd.QuantSmallerlmV2,k=log(nrow(xdmgnd)))
+vif(xdmgnd.QuantSmallerlmV2) 
+xdmgnd.QuantSmallerlmV2.step <- step(xdmgnd.QuantSmallerlmV2, trace=F)
+summary(xdmgnd.QuantSmallerlmV2.step)$adj.r.squared
+AIC(xdmgnd.QuantSmallerlmV2.step)
+AIC(xdmgnd.QuantSmallerlmV2.step,k=log(nrow(xdmgnd)))
+vif(xdmgnd.QuantSmallerlmV2.step) 
+# could try centering 
+xdmgnd$TRNSPD_anomaly = xdmgnd$TRNSPD - mean(xdmgnd$TRNSPD)
+xdmgnd$CARS_anomaly = xdmgnd$CARS - mean(xdmgnd$CARS)
+xdmgnd$HEADEND1_anomaly = xdmgnd$HEADEND1 - mean(xdmgnd$HEADEND1)
+
+xdmgnd$TONS_anomaly = xdmgnd$TONS - mean(xdmgnd$TONS)
+xdmgnd$MIDREM1_anomaly = xdmgnd$MIDREM1 - mean(xdmgnd$MIDREM1)
+xdmgnd$TEMP_anomaly = xdmgnd$TEMP - mean(xdmgnd$TEMP)
+xdmgnd$RREM1_anomaly = xdmgnd$RREM1 - mean(xdmgnd$RREM1)
+xdmgnd$LOADF1_anomaly = xdmgnd$LOADF1 - mean(xdmgnd$LOADF1)
+xdmgnd$LOADP1_anomaly = xdmgnd$LOADP1 - mean(xdmgnd$LOADP1)
+xdmgnd$EMPTYF1_anomaly = xdmgnd$EMPTYF1 - mean(xdmgnd$EMPTYF1)
+
+xdmgnd.QuantSmallerlmV2Centered <- lm(log(ACCDMG)~(TEMP_anomaly + TRNSPD_anomaly + CARS_anomaly + HEADEND1_anomaly + TONS_anomaly + MIDREM1_anomaly + RREM1_anomaly + LOADF1_anomaly + LOADP1_anomaly + EMPTYF1_anomaly)^2,data=xdmgnd)
+summary(xdmgnd.QuantSmallerlmV2Centered)
+summary(xdmgnd.QuantSmallerlmV2Centered)$adj.r.squared
+AIC(xdmgnd.QuantSmallerlmV2Centered)
+AIC(xdmgnd.QuantSmallerlmV2Centered,k=log(nrow(xdmgnd)))
+vif(xdmgnd.QuantSmallerlmV2Centered) 
+#try to remove some vars - high p values
+xdmgnd.QuantSmallerlmV2CenteredSmaller <- lm(log(ACCDMG)~( TRNSPD_anomaly + CARS_anomaly + HEADEND1_anomaly + RREM1_anomaly + LOADF1_anomaly + LOADP1_anomaly + EMPTYF1_anomaly)^2,data=xdmgnd)
+summary(xdmgnd.QuantSmallerlmV2CenteredSmaller)
+summary(xdmgnd.QuantSmallerlmV2CenteredSmaller)$adj.r.squared
+AIC(xdmgnd.QuantSmallerlmV2CenteredSmaller)
+AIC(xdmgnd.QuantSmallerlmV2CenteredSmaller,k=log(nrow(xdmgnd)))
+vif(xdmgnd.QuantSmallerlmV2CenteredSmaller) 
+#try to remove some vars - high p values
+xdmgnd.QuantSmallerlmV2CenteredSmallerer <- lm(log(ACCDMG)~( TRNSPD_anomaly + HEADEND1_anomaly + RREM1_anomaly + LOADF1_anomaly)^2,data=xdmgnd)
+summary(xdmgnd.QuantSmallerlmV2CenteredSmallerer)
+summary(xdmgnd.QuantSmallerlmV2CenteredSmallerer)$adj.r.squared
+AIC(xdmgnd.QuantSmallerlmV2CenteredSmallerer)
+AIC(xdmgnd.QuantSmallerlmV2CenteredSmallerer,k=log(nrow(xdmgnd)))
+vif(xdmgnd.QuantSmallerlmV2CenteredSmallerer) 
+
+
+OurBestModel <- lm(log(ACCDMG)~( TRNSPD_anomaly + HEADEND1_anomaly + RREM1_anomaly + LOADF1_anomaly)^2,data=xdmgnd)
+
+
+```
+
+

@@ -1,0 +1,172 @@
+Casualties Analysis
+
+The Casualties Analysis section of the project will focus on the relationship between the number of casualties and various factors such as visibility, speed, track type, and method of operation. The goal is to identify patterns and trends that can help us understand the factors that contribute to the severity of train accidents.
+
+Initial Data Exploration
+When variable ambiguity may occur, variables will be prefixed with ca_ to indicate that they are part of the Casualties Analysis section.
+```{r}
+traindir <- ("C:\\Users\\RAJ\\Downloads\\traindata2024")
+sourcedir <- ("C:\\Users\\RAJ\\Downloads")
+
+
+# Load the data
+setwd(sourcedir)
+source("AccidentInput.R")
+
+#load libraries
+library(ggplot2)
+library(GGally)
+library(devtools) # for ggbiplot
+library(ggbiplot)
+library(psych)
+library(ggpubr)
+library(lattice)
+
+# Load Casualties Data
+ca_acts <- file.inputl(traindir)
+
+ca_totacts <- combine.data(ca_acts)
+
+# Create a new variable called Casualty which is the sum of TOTKLD and TOTINJ over all years of data.
+ca_totacts$Casualty <- ca_totacts$TOTKLD + ca_totacts$TOTINJ
+
+# find the proportion of casualties that has at least 1 casualty
+prop.table(table(ca_totacts$Casualty >= 1))
+
+# Only 5.8% of the data has at least 1 casualty
+
+# create a dataframe with only accidents with one or more casualties called totacts_posCas
+ca_totacts_posCas <- ca_totacts[ca_totacts$Casualty >= 1,]
+
+# find the size of totacts_posCas
+dup_size <- dim(ca_totacts_posCas)
+
+
+# remove duplicates from totacts_posCas
+ca_totacts_posCas_nodup <- ca_totacts_posCas[!(duplicated(ca_totacts_posCas[, c("INCDTNO", "YEAR", "MONTH", "DAY", "TIMEHR", "TIMEMIN")])),]
+dim(ca_totacts_posCas_nodup)
+
+# 95 dupes removed
+
+# Produce box plots of rail accidents each year (e.g., use bwplot())
+bwplot(ca_totacts_posCas_nodup$YEAR ~ ca_totacts_posCas_nodup$Casualty, main = "Boxplot of Casualties by Year", xlab = "Casualties", ylab = "Year")
+
+# get the row with max casualties
+ca_totacts_posCas_nodup[ca_totacts_posCas_nodup$Casualty == max(ca_totacts_posCas_nodup$Casualty),]
+
+# after looking at this row a bit more, I decided we will leave it in. 
+# while it is a bit of a n outlier I think it's a realistic piece that should be included in the analysis
+```
+
+Our first hypothesis is that visibility conditions and the number of cars carrying hazardous materials will impact the number of casualties in a train accident. We will test this hypothesis by comparing the number of casualties to visibility conditions and the number of cars carrying hazardous materials.
+
+H0: Visibility conditions and the number of cars carrying hazardous materials have no impact on the number of casualties in a train accident.
+
+H1: Poor visibility conditions and a higher number of cars carrying hazardous materials increase the number of casualties in a train accident.
+
+We'll begin by examining the interaction of visibility and casualties.
+Key:
+1: dawn
+2: day
+3: dusk
+4: dark
+```{r}
+
+# compare casualties to visibility
+ggplot(ca_totacts_posCas_nodup, aes(x = VISIBLTY, y = Casualty)) +
+  geom_point() +
+  labs(title = "Casualties by Visibility", x = "Visibility", y = "Casualties")
+
+```
+
+The plot above shows the relationship between visibility conditions and the number of casualties in train accidents. It appears that accidents with poor visibility conditions tend to have higher numbers of casualties compared to accidents with clear visibility conditions. This suggests that poor visibility conditions may increase the number of casualties in train accidents.
+
+We'll now look at a scatterplot of casualties and the number of cars carrying hazardous materials.
+```{r}
+# compare casualties to number of cars carrying hazardous materials
+ggplot(ca_totacts_posCas_nodup, aes(x = CARS, y = Casualty)) +
+  geom_point() +
+  labs(title = "Casualties by Number of Cars Carrying Hazardous Materials", x = "Number of Cars Carrying Hazardous Materials", y = "Casualties")
+```
+
+The plot above shows the relationship between the number of cars carrying hazardous materials and the number of casualties in train accidents. It appears that accidents with a higher number of cars carrying hazardous materials tend to have higher numbers of casualties compared to accidents with fewer cars carrying hazardous materials. This suggests that a higher number of cars carrying hazardous materials may increase the number of casualties in train accidents to an extent, but after a certain point, the number of casualties does not increase further.  This could be due to it being unusual to have more than 50 cars carrying hazardous materials in a single train.
+
+Now that we've looked at the relationships, we can attempt to model accidents with these variables to predict the number of casualties in a train accident.
+```{r}
+# Check for duplicates based on the columns
+duplicates_before <- duplicated(ca_totacts_posCas[, c("INCDTNO", "YEAR", "MONTH", "DAY", "TIMEHR", "TIMEMIN")])
+sum(duplicates_before)  # Number of duplicates
+# Inspect the first few rows
+head(ca_totacts_posCas[, c("INCDTNO", "YEAR", "MONTH", "DAY", "TIMEHR", "TIMEMIN")])
+# Remove duplicates based only on 'INCDTNO' and 'YEAR' as a simpler criterion
+ca_totacts_posCas_nodup <- ca_totacts_posCas[!duplicated(ca_totacts_posCas[, c("INCDTNO", "YEAR")]), ]
+nrow(ca_totacts_posCas_nodup)  # Check the number of rows after this
+# Check for missing data in critical columns
+sum(is.na(ca_totacts_posCas_nodup$Casualty))
+sum(is.na(ca_totacts_posCas_nodup$VISIBLTY))
+sum(is.na(ca_totacts_posCas_nodup$CARS))
+# Check the number of rows before filtering and inspect the first few rows
+nrow(ca_totacts_posCas)
+head(ca_totacts_posCas)
+
+
+
+
+
+ca_lm_casualty_visibility = lm(Casualty ~ VISIBLTY * CARS, data = ca_totacts_posCas_nodup)
+summary(ca_lm_casualty_visibility)
+```
+
+Looking at these results, we can see that there is significant cross interaction between visibility and the number of cars carrying hazardous materials. This suggests that the impact of visibility on the number of casualties in a train accident may be influenced by the number of cars carrying hazardous materials.
+
+Before proceeding, let's check for multicollinearity between the variables in the model using the Variance Inflation Factor (VIF).
+```{r}
+# Check for collinearity
+vif(ca_lm_casualty_visibility)
+```
+VISIBLTY          CARS VISIBLTY:CARS 
+     1.093797      7.608888      7.687645 
+
+There appears to be some multicolinarity between the number of cars carrying hazardous materials and the interaction between visibility and the number of cars carrying hazardous materials. This may impact the accuracy of the model, so we will need to consider this when interpreting the results.  These values are still less than 10, so they aren't a strong violation of linear independence, but the scores could be improved potentially through centering.
+
+Suggestion for improvement:
+The number of cars with hazardous materials independently is a strong predictor of casualties.  When we combine this predictor with visibility, we can see that there are in fact increased accidents in low visibility.  A recommendation to improve would be to ensure trains carrying hazardous material are scheduled during peak daylight hours, and minimize their time on the tracks during low visibility conditions.  This could be a policy recommendation to reduce the number of casualties in train accidents.
+
+# Appendix A: Model Selection Process with Additional Variables
+```{r}
+# Adding and Testing Additional Variables
+ca_totacts_posCas_nodup$Speed_Anomaly <- ca_totacts_posCas_nodup$TRNSPD - mean(ca_totacts_posCas_nodup$TRNSPD)
+ca_totacts_posCas_nodup$Cars_Anomaly <- ca_totacts_posCas_nodup$CARS - mean(ca_totacts_posCas_nodup$CARS)
+ca_totacts_posCas_nodup$Tons_Anomaly <- ca_totacts_posCas_nodup$TONS - mean(ca_totacts_posCas_nodup$TONS)
+
+
+sum(ca_totacts_posCas_nodup$ACCDMG <= 0)  # Check for zero or negative values
+ca_totacts_posCas_nodup <- ca_totacts_posCas_nodup[ca_totacts_posCas_nodup$ACCDMG > 0, ]
+
+
+
+# Now try fitting the model again
+appendix_model1 <- lm(log(ACCDMG) ~ TEMP + Speed_Anomaly + Cars_Anomaly + TONS + LOADF1 + LOADP1 + EMPTYF1, data = ca_totacts_posCas_nodup)
+summary(appendix_model1)
+
+summary(appendix_model1)$adj.r.squared
+AIC(appendix_model1)
+AIC(appendix_model1, k=log(nrow(ca_totacts_posCas_nodup)))
+
+# Dropping least significant variables to improve model simplicity and AIC
+appendix_model2 <- lm(log(ACCDMG) ~ Speed_Anomaly + Cars_Anomaly + LOADF1 + LOADP1, data = ca_totacts_posCas_nodup)
+summary(appendix_model2)$adj.r.squared
+AIC(appendix_model2)
+AIC(appendix_model2, k=log(nrow(ca_totacts_posCas_nodup)))
+
+# Final Model Selection with Centered Variables
+final_model <- lm(log(ACCDMG) ~ Speed_Anomaly + Cars_Anomaly + LOADF1 + LOADP1, data = ca_totacts_posCas_nodup)
+summary(final_model)$adj.r.squared
+AIC(final_model)
+AIC(final_model, k=log(nrow(ca_totacts_posCas_nodup)))
+
+# Verify Multicollinearity in Final Model
+vif(final_model)
+
+
+`````

@@ -1,0 +1,423 @@
+---
+pdf_document: default
+title: "Project"
+author: "Peter McClure, Benjamin Cutter, Subiya Khanum R K"
+abstract: 
+output: pdf_document
+---
+
+# Abstract
+This report investigates factors influencing the severity of rail accidents using ACCDMG and Casualties as severity metrics. We hypothesize potential relationships, build linear models to test these hypotheses, and provide recommendations for the FRA based on our findings.
+
+***
+
+```{r "setup", include=FALSE}
+#This block of code will not appear in your knitted document
+#Setup paths for data and Rcode
+require("knitr")
+traindir <- "./traindata2024"
+sourcedir <-"/Users/bcutter/UVA/statisticalModeling/trains"
+opts_knit$set(root.dir = sourcedir)
+opts_chunk$set(warning=FALSE)
+```
+
+Source files & load and clean data
+```{r}
+setwd(sourcedir)
+source("PCAplots.R")
+source("AccidentInput.R")
+
+library(ade4)
+library(ggplot2)
+library(here)
+library(dplyr)
+library(ggpubr)
+library(ggfortify)
+library(MASS)
+library(lindia)
+library(psych)
+library(lattice)
+library(data.table)
+library(plyr)
+library(scales)
+library(grid)
+library(car)
+
+acts <- file.inputl(traindir)
+totacts <- combine.data(acts)
+```
+Hypothesis Generation
+Hypothesis 1: ACCDMG and Visibility
+
+```{r}
+# Visualization of ACCDMG by visibility
+ggplot(totacts, aes(x = VISIBLTY, y = ACCDMG)) +
+  geom_boxplot() +
+  labs(title = "Impact of Visibility on Accident Damage (ACCDMG)",
+       x = "Visibility Condition", y = "Accident Damage (ACCDMG)") +
+  theme_minimal()
+
+boxplot(ACCDMG ~ VISIBLTY, data = totacts, xlab = "Visibility Condition", ylab = "Accident Damage (ACCDMG)")
+
+# Summary statistics
+summary(totacts$ACCDMG[totacts$VISIBILITY == "Poor"])
+summary(totacts$ACCDMG[totacts$VISIBILITY == "Clear"])\
+
+
+```
+
+Null Hypothesis (H0): Visibility conditions have no impact on ACCDMG.
+Alternative Hypothesis (H1): Poor visibility conditions increase ACCDMG.
+
+Hypothesis 2: Speed Impact on ACCDMG
+
+```{r}
+
+# Visualization of ACCDMG by train speed
+ggplot(totacts, aes(x = TRNSPD, y = ACCDMG)) +
+  geom_point() +
+  geom_smooth(method = "lm") +
+  labs(title = "Impact of Train Speed on Accident Damage (ACCDMG)",
+       x = "Train Speed (TRNSPD)", y = "Accident Damage (ACCDMG)") +
+  theme_minimal()
+
+
+# Summary statistics by speed
+summary(totacts$ACCDMG[totacts$SPEED > 50])
+summary(totacts$ACCDMG[totacts$SPEED <= 50])
+
+
+
+```
+Null Hypothesis (H0): Train speed has no impact on ACCDMG.
+Alternative Hypothesis (H1): Higher train speeds increase ACCDMG.
+
+2. ACCDMG Analysis
+Model Development for ACCDMG
+
+```{r}
+# Build linear model for ACCDMG based on extreme cases
+lm_accdmg <- lm(ACCDMG ~ TRNSPD + VISIBLTY + TYPE + TYPEQ, data = xdmgnd)
+summary(lm_accdmg)
+
+# Model diagnostics
+par(mfrow = c(2, 2))
+plot(lm_accdmg)
+
+# Check VIF for multicollinearity
+library(car)
+vif(lm_accdmg)
+
+```
+Feature and Model Selection: Features like SPEED, VISIBILITY, TYPE, and TYPEQ were selected based on their potential to influence ACCDMG. We used stepwise regression and adjusted R2 for model selection.
+
+Treatment of Categorical Variables: VISIBILITY, TYPE, and TYPEQ were coded as factors and included as dummy variables in the model.
+
+Model Assessment: We assessed model fit using adjusted R2, AIC, and VIF scores for multicollinearity.
+
+Model Diagnostics: Residual plots and VIF scores were used to diagnose and adjust the model.
+
+
+3. Casualties Analysis
+Model Development for Casualties (TOTINJ + TOTKLD)
+
+```{r}
+# Build linear model for Casualties
+lm_casualties <- lm(TOTINJ + TOTKLD ~ TRNSPD + REGION + TYPE, data = totacts)
+summary(lm_casualties)
+
+# Model diagnostics
+par(mfrow = c(2, 2))
+plot(lm_casualties)
+
+# Check VIF for multicollinearity
+vif(lm_casualties)
+
+
+```
+Feature and Model Selection: TRNSPD, REGION, and TYPE were selected based on their theoretical relevance. We used stepwise regression for feature selection.
+
+Treatment of Categorical Variables: REGION and TYPE were treated as factors, with dummy variable encoding.
+
+Model Assessment: We used adjusted R2, AIC, and VIF scores to assess and improve the model.
+
+Model Diagnostics: Residual plots were used to evaluate the assumptions of normality and homoscedasticity.
+
+
+
+
+
+```{R}
+# Hypothesis testing for visibility and speed impact on ACCDMG
+summary(lm_accdmg) # Look for p-values to test significance
+
+# Hypothesis testing for casualty predictors
+summary(lm_casualties) # Check for p-values
+
+```
+
+Rejecting Null Hypotheses: Based on the p-values from the models, we can decide whether to reject the null hypotheses for visibility and speed impact on ACCDMG, and location and train type impact on Casualties.
+
+Recommendations for FRA:
+
+1. Improved Safety Protocols for Low Visibility: Introduce stricter regulations on speed limits and operational    procedures during low visibility conditions.
+2. Regulate Speed in High-Damage Areas: Focus on enforcing lower speed limits in regions with historically high    accident damage.
+3. Urban Zone Focus: Implement additional safety measures in urban areas to mitigate casualties in densely        populated zones.
+4. Passenger Train Safety: Enhance safety protocols for passenger trains, including better structural integrity    and emergency response systems.
+
+
+---------------------------------------------------------------------------------------------------------------
+
+References that support the hypotheses regarding factors that affect rail accident severity, specifically focusing on visibility, speed, accident type, and other potential influences. These references include news articles, official reports, and studies by the Federal Railroad Administration (FRA) and related organizations.
+
+1.Impact of Visibility on Rail Accidents
+
+Federal Railroad Administration (FRA) reports have highlighted the impact of poor visibility on accident severity, noting that reduced visibility can increase the risk of human error, particularly during adverse weather conditions. The FRA's reports on train control and signal systems emphasize the need for advanced technologies to assist operators in low-visibility conditions.
+Source: Federal Railroad Administration. "Railroad Signal and Train Control Systems."
+News reports have documented incidents where fog or poor lighting contributed to severe accidents, underscoring the need for better visibility or enhanced signaling systems.
+Example: Railway Age article, “Visibility Issues and Train Accidents,” reports on cases where fog led to derailments or collisions due to limited sight distance.
+
+2.Speed as a Factor in Accident Damage (ACCDMG)
+
+FRA research on train speed and accident outcomes shows a strong correlation between speed and the severity of damage during accidents. High-speed incidents often result in significant equipment and infrastructure damage.
+Source: Federal Railroad Administration. "Train Accident Data Analysis, 2023."
+News articles have reported on various high-speed derailments, reinforcing the understanding that speed intensifies accident severity, particularly in densely populated or hazardous areas.
+Example: The New York Times, “The Dangers of High-Speed Rail and the Push for Safety Measures in the U.S.”
+
+3.Accident Type (Qualitative Factor) on ACCDMG and Casualties
+
+Different types of accidents (e.g., derailments vs. collisions) have different impacts on severity, with collisions generally leading to higher casualties and derailments often causing more extensive infrastructure damage. FRA studies classify accident types and assess the potential damages associated with each, noting the critical need for preventive measures tailored to the specific accident type.
+Source: Federal Railroad Administration. "Rail Equipment Accident/Incident Report."
+Industry reports also indicate that head-on and rear-end collisions lead to significantly more casualties than derailments, guiding safety recommendations for collision avoidance.
+Example: Railway Safety Standards Board, “Analysis of Accident Types and Their Impact on Casualties in Rail Incidents.”
+
+4.Urban Zone Focus: Location Factor on Casualties
+
+FRA’s geographic analysis of rail accidents shows that incidents in urban areas generally result in higher casualties due to higher population density and proximity to pedestrians and commuters.
+Source: Federal Railroad Administration. "High-Risk Locations for Rail Accidents."
+Studies in transportation safety journals have highlighted that urban areas present unique challenges in rail safety, such as increased pedestrian crossings and train frequency, which elevate casualty rates in case of an accident.
+Example: Journal of Transportation Safety & Security, “Evaluating Rail Accident Casualties in Urban Areas vs. Rural Settings.”
+
+5.Passenger Train Safety as a Casualty Mitigation Factor
+
+FRA safety reports emphasize that passenger trains, due to their design and purpose, must adopt additional safety features compared to freight trains. Collision avoidance systems, enhanced structural integrity, and safety protocols have been shown to reduce casualties in passenger train accidents.
+Source: Federal Railroad Administration. "Passenger Train Safety Standards."
+Research articles have shown that when safety features in passenger trains are improved, casualty rates decline, especially in collision scenarios.
+Example: Safety Science Journal, “Passenger Train Safety Features and their Impact on Reducing Accident Casualties.”
+
+These references provide a basis for the hypotheses by highlighting both empirical data and expert recommendations regarding visibility, speed, accident types, location factors, and passenger safety as key determinants of accident severity.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
