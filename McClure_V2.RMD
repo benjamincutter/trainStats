@@ -450,9 +450,7 @@ plot(ClassModel_ALL)
 ```
 
 
-Build linear models to test hypotheses developed for the ACCDMG severity metric con-
-sidering only accidents with damages above the upper whisker, and produce evidence to
-provide to the FRA addressing the following items:
+In direct response to product questions:
 
 (a) The feature and model selection techniques you used to find appropriate models for
 this problem;
