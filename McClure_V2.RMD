@@ -476,6 +476,7 @@ this problem;
   
   
 Recommendations:
+The null hypothesis for interactions with weather and track type can be rejected.  
 Rain is a risk factor
   -Teach train personnel to be extra careful in rainy weather
   -If possible keep weight down and number of empty cars down
